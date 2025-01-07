@@ -58,3 +58,4 @@ getgenv().Orizon = {
         }
     }
 }
+https://raw.githubusercontent.com/nuhuh3726/new-table-panel/refs/heads/main/raw
