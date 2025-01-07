@@ -1,0 +1,1116 @@
+--// Local variables
+local Inset = game:GetService("GuiService"):GetGuiInset().Y
+local Mouse = game.Players.LocalPlayer:GetMouse()
+local Client = game.Players.LocalPlayer
+local Cam = workspace.CurrentCamera
+
+--// FOV Circle Drawing
+local FOV = Drawing.new("Circle")
+FOV.Thickness = 1
+FOV.Color = Color3.fromRGB(255, 0, 0)
+FOV.Filled = false
+
+local function UpdateFOV()
+    local fovSettings = Orizon.Target.Fov
+    if fovSettings.Visible then
+        FOV.Position = Vector2.new(Mouse.X, Mouse.Y + Inset)
+        FOV.Radius = fovSettings.Radius
+        FOV.Visible = true
+    else
+        FOV.Visible = false
+    end
+end
+
+task.spawn(function()
+    while task.wait(0.5) do
+        UpdateFOV()
+    end
+end)
+
+local function WallCheck(destination, ignore)
+    if not Orizon.SilentAim.Setting.WallCheck then
+        return true
+    end
+    local origin = Cam.CFrame.p
+    local direction = destination - origin
+    local ray = Ray.new(origin, direction)
+    local hit = workspace:FindPartOnRayWithIgnoreList(ray, ignore)
+    return hit == nil
+end
+
+local function Death(Plr)
+    if Plr.Character and Plr.Character:FindFirstChild("BodyEffects") then
+        local bodyEffects = Plr.Character.BodyEffects
+        local ko = bodyEffects:FindFirstChild("K.O") or bodyEffects:FindFirstChild("KO")
+        return ko and ko.Value
+    end
+    return false
+end
+
+local function getClosestChar()
+    local target, closestDist = nil, math.huge
+    local mousePos = Vector2.new(Mouse.X, Mouse.Y)
+
+    for _, v in pairs(game.Players:GetPlayers()) do
+        if v.Character and v ~= Client and v.Character:FindFirstChild("HumanoidRootPart") then
+            if Orizon.SilentAim.Setting.KOCheck and Death(v) then
+                continue
+            end
+
+            local closestPart, closestPartDistance = nil, math.huge
+            local partsToCheck = Orizon.SilentAim.Setting.ClosestPart and v.Character:GetChildren() or {v.Character:FindFirstChild(Orizon.SilentAim.Setting.TargetPart)}
+
+            for _, part in pairs(partsToCheck) do
+                if part:IsA("BasePart") then
+                    local partPos = Cam:WorldToScreenPoint(part.Position)
+                    local distance = (Vector2.new(partPos.X, partPos.Y) - mousePos).Magnitude
+                    if distance < closestPartDistance and distance < Orizon.SilentAim.Setting.FOV.Radius and WallCheck(part.Position, {Client, v.Character}) then
+                        closestPartDistance = distance
+                        closestPart = part
+                    end
+                end
+            end
+
+            if closestPart and closestPartDistance < closestDist then
+                closestDist = closestPartDistance
+                target = {Player = v, Part = closestPart}
+            end
+        end
+    end
+    return target
+end
+
+local function Arguments()
+        local placeIds = {
+            [16871610060] = "UpdateMousePos",
+            [18128296193] = "UpdateMousePos",
+            [18126537775] = "UpdateMousePos",
+            [2788229376] = "UpdateMousePosI",
+            [16033173781] = "UpdateMousePosI",
+            [7213786345] = "UpdateMousePosI",
+            [9825515356] = "MousePosUpdate",
+            [17895632819] = "UpdateMousePos",
+            [5602055394] = "MousePos",
+            [7951883376] = "MousePos",
+            [9183932460] = "UpdateMousePos",
+            [17403265390] = "MOUSE",
+            [14412601883] = "MOUSE",
+            [18111448661] = "MOUSE",
+            [14487637618] = "MOUSE",
+            [11143225577] = "UpdateMousePos",
+            [14413712255] = "MOUSE",
+            [12927359803] = "UpdateMousePos",
+            [12867571492] = "UpdateMousePos",
+            [11867820563] = "UpdateMousePos",
+            [17109142105] = "MoonUpdateMousePos",
+            [15186202290] = "MOUSE",
+            [16469595315] = "UpdateMousePos",
+            [17319408836] = "UpdateMousePosI",
+            [14975320521] = "UpdateMousePos",
+            [17200018150] = "UpdateMousePos",
+            [15644861772] = "UpdateMousePos",
+            [17723797487] = "UpdateMousePosI",
+            [17897702920] = "UpdateMousePos",
+            [17809101348] = "UpdateMousePos",
+            [17344804827] = "UpdateMousePos",
+            [16435867341] = "UpdateMousePos",
+            [18128019573] = "UpdateMousePos",
+            [17079102898] = "UpdateMousePos",
+            [16859411452] = "UpdateMousePos",
+            [17718959553] = "UpdateMousePos",
+            [14277620939] = "UpdateMousePos",
+            [18100659835] = "UpdateMousePos",
+            [13504008904] = "UpdateMousePos",
+            [18700848369] = "UpdateMousePos",
+            [18209866987] = "UpdateMousePos",
+            [18128296193] = "UpdateMousePos",
+            [18111451594] = "MOUSE",
+            [14800398569] = "UpdateMousePos",
+            [18128226573] = "UpdateMousePos",
+            [16871610060] = "UpdateMousePos",
+            [17836920497] = "Mouse",
+        }
+    return placeIds[game.PlaceId] or "UpdateMousePos"
+end
+
+local function MainEvents()
+    local eventNames = {
+        "MainEvent",
+        "MAINEVENT",
+        "Bullets",
+        ".",
+    }
+    for _, child in pairs(game.ReplicatedStorage:GetChildren()) do
+        for _, eventName in pairs(eventNames) do
+            if child.Name == eventName then
+                return child
+            end
+        end
+    end
+end
+
+local function connectToolActivation(tool)
+    if tool:IsA("Tool") then
+        local debounce = false
+        tool.Activated:Connect(function()
+            if not debounce then
+                debounce = true
+                if Orizon.SilentAim.Setting.Enabled then
+                    local target = getClosestChar()
+                    if target then
+                        local endPoint = target.Part.CFrame.Position + (target.Part.Velocity * Orizon.SilentAim.Setting.Prediction)
+                        MainEvents():FireServer(Arguments(), endPoint)
+                    end
+                end
+                task.wait(0.1)
+                debounce = false
+            end
+        end)
+    end
+end
+
+local function handleRespawn()
+    for _, tool in pairs(Client.Backpack:GetChildren()) do
+        connectToolActivation(tool)
+    end
+
+    Client.Character.ChildAdded:Connect(function(tool)
+        connectToolActivation(tool)
+    end)
+end
+
+local function setupRespawnHandling()
+    Client.CharacterAdded:Connect(function()
+        task.wait(1)
+        handleRespawn()
+    end)
+end
+
+handleRespawn()
+setupRespawnHandling()
+
+
+
+
+
+local runService = game:GetService("RunService")
+local userInputService = game:GetService("UserInputService")
+local playersService = game:GetService("Players")
+local workspace = game:GetService("Workspace")
+local camera = workspace.CurrentCamera
+local localPlayer = playersService.LocalPlayer
+local mouse = localPlayer:GetMouse()
+
+local aimCircle = Drawing.new("Circle")
+local camlockCircle = Drawing.new("Circle")
+
+local function updateCircles()
+    local guiInsetY = game:GetService("GuiService"):GetGuiInset().Y
+    local mousePosition = Vector2.new(mouse.X, mouse.Y + guiInsetY)
+
+    local targetFov = getgenv().Orizon.Target.Fov
+    if targetFov then
+        aimCircle.Visible = targetFov.Visible
+        aimCircle.Color = targetFov.Color
+        aimCircle.Radius = targetFov.Radius
+        aimCircle.Transparency = targetFov.Transparency
+        aimCircle.Position = mousePosition
+    end
+
+    local cameralockFov = getgenv().Orizon.cameralock.FoV
+    if cameralockFov then
+        camlockCircle.Visible = cameralockFov.Visible
+        camlockCircle.Color = cameralockFov.Color
+        camlockCircle.Radius = cameralockFov.Radius
+        camlockCircle.Transparency = cameralockFov.Transparency
+        camlockCircle.Position = mousePosition
+    end
+end
+
+runService.RenderStepped:Connect(updateCircles)
+
+local function isDead(player)
+    if player.Character and player.Character:FindFirstChild("BodyEffects") then
+        local bodyEffects = player.Character.BodyEffects
+        local ko = bodyEffects:FindFirstChild("K.O") or bodyEffects:FindFirstChild("KO")
+        return ko and ko.Value or false
+    end
+    return false
+end
+
+local function isGrabbed(player)
+    return player.Character and player.Character:FindFirstChild("GRABBING_CONSTRAINT") ~= nil
+end
+
+local function findClosestPlayer(circle)
+    local closestPlayer, shortestDistance = nil, math.huge
+    local players = playersService:GetPlayers()
+    local mousePosition = Vector2.new(mouse.X, mouse.Y)
+
+    for _, player in ipairs(players) do
+        if player ~= localPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+            local screenPosition, onScreen = camera:WorldToScreenPoint(player.Character.HumanoidRootPart.Position)
+            if onScreen then
+                local distance = (Vector2.new(screenPosition.X, screenPosition.Y) - mousePosition).Magnitude
+                if circle.Radius > distance and distance < shortestDistance then
+                    closestPlayer, shortestDistance = player, distance
+                end
+            end
+        end
+    end
+    return closestPlayer
+end
+
+local function toggleCamlock(input, processed)
+    if processed then return end
+
+    local camlockKey = Enum.KeyCode[getgenv().Orizon.cameralock.Key]
+    if input.KeyCode == camlockKey then
+        camlockToggle = not camlockToggle
+
+        if camlockToggle then
+            if getgenv().Orizon.cameralock.On then
+                if getgenv().Orizon.cameralock.DisableTargetAim then
+                    camlockTarget = findClosestPlayer(camlockCircle)
+                else
+                    if getgenv().Orizon.Target.On and getgenv().Orizon.Target.UseAirShot then
+                        silentTarget = findClosestPlayer(aimCircle)
+                    end
+                    camlockTarget = findClosestPlayer(camlockCircle)
+                end
+            end
+        else
+            silentTarget, camlockTarget = nil, nil
+        end
+    end
+end
+
+userInputService.InputBegan:Connect(toggleCamlock)
+
+local function getArgument()
+    local currentPlaceId = game.PlaceId
+    local eventName, args
+
+    if currentPlaceId == 2788229376 or currentPlaceId == 7213786345 or currentPlaceId == 16033173781 then
+        eventName = "MainEvent"
+        args = { "UpdateMousePosI", Vector3.new(-621.6868286132812, 18.75, -117.6417465209961) }
+    elseif currentPlaceId == 9825515356 then
+        eventName = "MainEvent"
+        args = { "MousePosUpdate", Vector3.new(9367.11328125, 547.904541015625, -3346.381103515625) }
+    elseif currentPlaceId == 15186202290 or currentPlaceId == 17836920497 or currentPlaceId == 17403265390 then
+        eventName = "MAINEVENT"
+        args = { "MOUSE", Vector3.new(-105.59376525878906, 11.003229141235352, 127.97737884521484) }
+    else
+        eventName = "MainEvent"
+        args = { "UpdateMousePos", Vector3.new(-134.94320678710938, 21.908273696899414, -769.0164794921875) }
+    end
+
+    return eventName, args
+end
+
+local function getVelocity(player, partName)
+    local part = player.Character and player.Character:FindFirstChild(partName)
+    return part and part.Velocity or Vector3.new()
+end
+
+local function handleSilentAim(tool)
+    local eventName, arguments = getArgument()
+    local event = game.ReplicatedStorage:FindFirstChild(eventName)
+
+    if tool:IsA("Tool") and event then
+        tool.Activated:Connect(function()
+            if silentTarget and silentTarget.Character and not isDead(silentTarget) then
+                local settings = getgenv().Orizon.Target
+                local targetPart = silentTarget.Character:FindFirstChild(settings.MultipleHitParts[1])
+
+                if settings.UseAirShot and targetPart and targetPart.Velocity.Y < -16 then
+                    if getgenv().Orizon.Target.EnableAirShotPrediction then
+                        targetPart = silentTarget.Character:FindFirstChild(settings.AirShotPart)
+                    end
+                end
+
+                if targetPart then
+                    local targetPosition = targetPart.Position + (getVelocity(silentTarget, settings.MultipleHitParts[1]) * settings.Prediction)
+                    event:FireServer(unpack(arguments), targetPosition)
+                end
+            end
+        end)
+    end
+end
+
+local function handleCamlock()
+    if camlockToggle and camlockTarget and camlockTarget.Character and not isDead(camlockTarget) then
+        local settings = getgenv().Orizon.cameralock
+        local hitPartName = settings.Part
+        local airPartName = settings.AirShotPart
+        local prediction = settings.Prediction
+        local airshotPrediction = settings.AirShotPrediction
+        local smooth = settings.Smoothness
+        local airPartSmooth = settings.AirShotSmoothness
+        local hitAirPartEnabled = settings.UseAirShot
+
+        local targetPart = camlockTarget.Character:FindFirstChild(hitPartName)
+        local isAirShot = hitAirPartEnabled and targetPart and targetPart.Velocity.Y < 0
+
+        if isAirShot then
+            if getgenv().Orizon.cameralock.EnableAirShotPrediction then
+                targetPart = camlockTarget.Character:FindFirstChild(airPartName)
+                if targetPart then
+                    smooth = airPartSmooth
+                    prediction = airshotPrediction
+                end
+            end
+        end
+
+        if targetPart then
+            local targetVelocity = getVelocity(camlockTarget, hitPartName)
+            local predictedPosition = targetPart.Position + targetVelocity * prediction
+            local targetCFrame = CFrame.new(camera.CFrame.Position, predictedPosition)
+
+            camera.CFrame = camera.CFrame:Lerp(targetCFrame, smooth)
+        end
+    else
+        camlockTarget = nil
+    end
+end
+
+runService.RenderStepped:Connect(handleCamlock)
+
+local function onToolEquipped(tool)
+    handleSilentAim(tool)
+end
+
+local function connectToolEvents()
+    for _, tool in ipairs(localPlayer.Backpack:GetChildren()) do
+        if tool:IsA("Tool") then
+            onToolEquipped(tool)
+        end
+    end
+
+    localPlayer.Backpack.ChildAdded:Connect(function(child)
+        if child:IsA("Tool") then
+            onToolEquipped(child)
+        end
+    end)
+end
+
+connectToolEvents()
+
+local function onCharacterAdded(character)
+    character.ChildAdded:Connect(function(child)
+        if child:IsA("Tool") then
+            onToolEquipped(child)
+        end
+    end)
+    for _, tool in pairs(character:GetChildren()) do
+        if tool:IsA("Tool") then
+            onToolEquipped(tool)
+        end
+    end
+
+    camlockTarget = nil
+end
+
+localPlayer.CharacterAdded:Connect(onCharacterAdded)
+if localPlayer.Character then
+    onCharacterAdded(localPlayer.Character)
+end
+
+
+-- Preview: https://cdn.discordapp.com/attachments/796378086446333984/818089455897542687/unknown.png
+-- Made by Blissful#4992
+local Settings = {
+    Box_Color = Color3.fromRGB(255, 0, 0),
+    Tracer_Color = Color3.fromRGB(255, 0, 0),
+    Tracer_Thickness = 1,
+    Box_Thickness = 1,
+    Tracer_Origin = "Bottom", -- Middle or Bottom if FollowMouse is on this won't matter...
+    Tracer_FollowMouse = false,
+    Tracers = true
+}
+local Team_Check = {
+    TeamCheck = false, -- if TeamColor is on this won't matter...
+    Green = Color3.fromRGB(0, 255, 0),
+    Red = Color3.fromRGB(255, 0, 0)
+}
+local TeamColor = true
+
+--// SEPARATION
+local player = game:GetService("Players").LocalPlayer
+local camera = game:GetService("Workspace").CurrentCamera
+local mouse = player:GetMouse()
+
+local function NewQuad(thickness, color)
+    local quad = Drawing.new("Quad")
+    quad.Visible = false
+    quad.PointA = Vector2.new(0,0)
+    quad.PointB = Vector2.new(0,0)
+    quad.PointC = Vector2.new(0,0)
+    quad.PointD = Vector2.new(0,0)
+    quad.Color = color
+    quad.Filled = false
+    quad.Thickness = thickness
+    quad.Transparency = 1
+    return quad
+end
+
+local function NewLine(thickness, color)
+    local line = Drawing.new("Line")
+    line.Visible = false
+    line.From = Vector2.new(0, 0)
+    line.To = Vector2.new(0, 0)
+    line.Color = color 
+    line.Thickness = thickness
+    line.Transparency = 1
+    return line
+end
+
+local function Visibility(state, lib)
+    for u, x in pairs(lib) do
+        x.Visible = state
+    end
+end
+
+local function ToColor3(col) --Function to convert, just cuz c;
+    local r = col.r --Red value
+    local g = col.g --Green value
+    local b = col.b --Blue value
+    return Color3.new(r,g,b); --Color3 datatype, made of the RGB inputs
+end
+
+local black = Color3.fromRGB(0, 0 ,0)
+local function ESP(plr)
+    local library = {
+        --//Tracer and Black Tracer(black border)
+        blacktracer = NewLine(Settings.Tracer_Thickness*2, black),
+        tracer = NewLine(Settings.Tracer_Thickness, Settings.Tracer_Color),
+        --//Box and Black Box(black border)
+        black = NewQuad(Settings.Box_Thickness*2, black),
+        box = NewQuad(Settings.Box_Thickness, Settings.Box_Color),
+        --//Bar and Green Health Bar (part that moves up/down)
+        healthbar = NewLine(3, black),
+        greenhealth = NewLine(1.5, black)
+    }
+
+    local function Colorize(color)
+        for u, x in pairs(library) do
+            if x ~= library.healthbar and x ~= library.greenhealth and x ~= library.blacktracer and x ~= library.black then
+                x.Color = color
+            end
+        end
+    end
+
+    local function Updater()
+        local connection
+        connection = game:GetService("RunService").RenderStepped:Connect(function()
+            if plr.Character ~= nil and plr.Character:FindFirstChild("Humanoid") ~= nil and plr.Character:FindFirstChild("HumanoidRootPart") ~= nil and plr.Character.Humanoid.Health > 0 and plr.Character:FindFirstChild("Head") ~= nil then
+                local HumPos, OnScreen = camera:WorldToViewportPoint(plr.Character.HumanoidRootPart.Position)
+                if OnScreen then
+                    local head = camera:WorldToViewportPoint(plr.Character.Head.Position)
+                    local DistanceY = math.clamp((Vector2.new(head.X, head.Y) - Vector2.new(HumPos.X, HumPos.Y)).magnitude, 2, math.huge)
+                    
+                    local function Size(item)
+                        item.PointA = Vector2.new(HumPos.X + DistanceY, HumPos.Y - DistanceY*2)
+                        item.PointB = Vector2.new(HumPos.X - DistanceY, HumPos.Y - DistanceY*2)
+                        item.PointC = Vector2.new(HumPos.X - DistanceY, HumPos.Y + DistanceY*2)
+                        item.PointD = Vector2.new(HumPos.X + DistanceY, HumPos.Y + DistanceY*2)
+                    end
+                    Size(library.box)
+                    Size(library.black)
+
+                    
+                    --// Health Bar
+                    local d = (Vector2.new(HumPos.X - DistanceY, HumPos.Y - DistanceY*2) - Vector2.new(HumPos.X - DistanceY, HumPos.Y + DistanceY*2)).magnitude 
+                    local healthoffset = plr.Character.Humanoid.Health/plr.Character.Humanoid.MaxHealth * d
+
+                    library.greenhealth.From = Vector2.new(HumPos.X - DistanceY - 4, HumPos.Y + DistanceY*2)
+                    library.greenhealth.To = Vector2.new(HumPos.X - DistanceY - 4, HumPos.Y + DistanceY*2 - healthoffset)
+
+                    library.healthbar.From = Vector2.new(HumPos.X - DistanceY - 4, HumPos.Y + DistanceY*2)
+                    library.healthbar.To = Vector2.new(HumPos.X - DistanceY - 4, HumPos.Y - DistanceY*2)
+
+                    local green = Color3.fromRGB(0, 255, 0)
+                    local red = Color3.fromRGB(255, 0, 0)
+
+                    library.greenhealth.Color = red:lerp(green, plr.Character.Humanoid.Health/plr.Character.Humanoid.MaxHealth);
+
+                    if Team_Check.TeamCheck then
+                        if plr.TeamColor == player.TeamColor then
+                            Colorize(Team_Check.Green)
+                        else 
+                            Colorize(Team_Check.Red)
+                        end
+                    else 
+                        library.tracer.Color = Settings.Tracer_Color
+                        library.box.Color = Settings.Box_Color
+                    end
+                    if TeamColor == true then
+                        Colorize(plr.TeamColor.Color)
+                    end
+                    Visibility(true, library)
+                else 
+                    Visibility(false, library)
+                end
+            else 
+                Visibility(false, library)
+                if game.Players:FindFirstChild(plr.Name) == nil then
+                    connection:Disconnect()
+                end
+            end
+        end)
+    end
+    coroutine.wrap(Updater)()
+end
+
+for i, v in pairs(game:GetService("Players"):GetPlayers()) do
+    if v.Name ~= player.Name then
+        coroutine.wrap(ESP)(v)
+    end
+end
+
+game.Players.PlayerAdded:Connect(function(newplr)
+    if newplr.Name ~= player.Name then
+        coroutine.wrap(ESP)(newplr)
+    end
+end)
+local Player = game:GetService("Players").LocalPlayer
+local Mouse = Player:GetMouse()
+local Camera = game:GetService("Workspace").CurrentCamera
+
+local function DrawLine()
+    local l = Drawing.new("Line")
+    l.Visible = false
+    l.From = Vector2.new(0, 0)
+    l.To = Vector2.new(1, 1)
+    l.Color = Color3.fromRGB(255, 0, 0)
+    l.Thickness = 1
+    l.Transparency = 1
+    return l
+end
+
+local function DrawESP(plr)
+    repeat wait() until plr.Character ~= nil and plr.Character:FindFirstChild("Humanoid") ~= nil
+    local limbs = {}
+    local R15 = (plr.Character.Humanoid.RigType == Enum.HumanoidRigType.R15) and true or false
+    if R15 then 
+        limbs = {
+            -- Spine
+            Head_UpperTorso = DrawLine(),
+            UpperTorso_LowerTorso = DrawLine(),
+            -- Left Arm
+            UpperTorso_LeftUpperArm = DrawLine(),
+            LeftUpperArm_LeftLowerArm = DrawLine(),
+            LeftLowerArm_LeftHand = DrawLine(),
+            -- Right Arm
+            UpperTorso_RightUpperArm = DrawLine(),
+            RightUpperArm_RightLowerArm = DrawLine(),
+            RightLowerArm_RightHand = DrawLine(),
+            -- Left Leg
+            LowerTorso_LeftUpperLeg = DrawLine(),
+            LeftUpperLeg_LeftLowerLeg = DrawLine(),
+            LeftLowerLeg_LeftFoot = DrawLine(),
+            -- Right Leg
+            LowerTorso_RightUpperLeg = DrawLine(),
+            RightUpperLeg_RightLowerLeg = DrawLine(),
+            RightLowerLeg_RightFoot = DrawLine(),
+        }
+    else 
+        limbs = {
+            Head_Spine = DrawLine(),
+            Spine = DrawLine(),
+            LeftArm = DrawLine(),
+            LeftArm_UpperTorso = DrawLine(),
+            RightArm = DrawLine(),
+            RightArm_UpperTorso = DrawLine(),
+            LeftLeg = DrawLine(),
+            LeftLeg_LowerTorso = DrawLine(),
+            RightLeg = DrawLine(),
+            RightLeg_LowerTorso = DrawLine()
+        }
+    end
+    local function Visibility(state)
+        for i, v in pairs(limbs) do
+            v.Visible = state
+        end
+    end
+
+    local function Colorize(color)
+        for i, v in pairs(limbs) do
+            v.Color = color
+        end
+    end
+
+    local function UpdaterR15()
+        local connection
+        connection = game:GetService("RunService").RenderStepped:Connect(function()
+            if plr.Character ~= nil and plr.Character:FindFirstChild("Humanoid") ~= nil and plr.Character:FindFirstChild("HumanoidRootPart") ~= nil and plr.Character.Humanoid.Health > 0 then
+                local HUM, vis = Camera:WorldToViewportPoint(plr.Character.HumanoidRootPart.Position)
+                if vis then
+                    -- Head
+                    local H = Camera:WorldToViewportPoint(plr.Character.Head.Position)
+                    if limbs.Head_UpperTorso.From ~= Vector2.new(H.X, H.Y) then
+                        --Spine
+                        local UT = Camera:WorldToViewportPoint(plr.Character.UpperTorso.Position)
+                        local LT = Camera:WorldToViewportPoint(plr.Character.LowerTorso.Position)
+                        -- Left Arm
+                        local LUA = Camera:WorldToViewportPoint(plr.Character.LeftUpperArm.Position)
+                        local LLA = Camera:WorldToViewportPoint(plr.Character.LeftLowerArm.Position)
+                        local LH = Camera:WorldToViewportPoint(plr.Character.LeftHand.Position)
+                        -- Right Arm
+                        local RUA = Camera:WorldToViewportPoint(plr.Character.RightUpperArm.Position)
+                        local RLA = Camera:WorldToViewportPoint(plr.Character.RightLowerArm.Position)
+                        local RH = Camera:WorldToViewportPoint(plr.Character.RightHand.Position)
+                        -- Left leg
+                        local LUL = Camera:WorldToViewportPoint(plr.Character.LeftUpperLeg.Position)
+                        local LLL = Camera:WorldToViewportPoint(plr.Character.LeftLowerLeg.Position)
+                        local LF = Camera:WorldToViewportPoint(plr.Character.LeftFoot.Position)
+                        -- Right leg
+                        local RUL = Camera:WorldToViewportPoint(plr.Character.RightUpperLeg.Position)
+                        local RLL = Camera:WorldToViewportPoint(plr.Character.RightLowerLeg.Position)
+                        local RF = Camera:WorldToViewportPoint(plr.Character.RightFoot.Position)
+
+                        --Head
+                        limbs.Head_UpperTorso.From = Vector2.new(H.X, H.Y)
+                        limbs.Head_UpperTorso.To = Vector2.new(UT.X, UT.Y)
+
+                        --Spine
+                        limbs.UpperTorso_LowerTorso.From = Vector2.new(UT.X, UT.Y)
+                        limbs.UpperTorso_LowerTorso.To = Vector2.new(LT.X, LT.Y)
+
+                        -- Left Arm
+                        limbs.UpperTorso_LeftUpperArm.From = Vector2.new(UT.X, UT.Y)
+                        limbs.UpperTorso_LeftUpperArm.To = Vector2.new(LUA.X, LUA.Y)
+
+                        limbs.LeftUpperArm_LeftLowerArm.From = Vector2.new(LUA.X, LUA.Y)
+                        limbs.LeftUpperArm_LeftLowerArm.To = Vector2.new(LLA.X, LLA.Y)
+
+                        limbs.LeftLowerArm_LeftHand.From = Vector2.new(LLA.X, LLA.Y)
+                        limbs.LeftLowerArm_LeftHand.To = Vector2.new(LH.X, LH.Y)
+
+                        -- Right Arm
+                        limbs.UpperTorso_RightUpperArm.From = Vector2.new(UT.X, UT.Y)
+                        limbs.UpperTorso_RightUpperArm.To = Vector2.new(RUA.X, RUA.Y)
+
+                        limbs.RightUpperArm_RightLowerArm.From = Vector2.new(RUA.X, RUA.Y)
+                        limbs.RightUpperArm_RightLowerArm.To = Vector2.new(RLA.X, RLA.Y)
+
+                        limbs.RightLowerArm_RightHand.From = Vector2.new(RLA.X, RLA.Y)
+                        limbs.RightLowerArm_RightHand.To = Vector2.new(RH.X, RH.Y)
+
+                        -- Left Leg
+                        limbs.LowerTorso_LeftUpperLeg.From = Vector2.new(LT.X, LT.Y)
+                        limbs.LowerTorso_LeftUpperLeg.To = Vector2.new(LUL.X, LUL.Y)
+
+                        limbs.LeftUpperLeg_LeftLowerLeg.From = Vector2.new(LUL.X, LUL.Y)
+                        limbs.LeftUpperLeg_LeftLowerLeg.To = Vector2.new(LLL.X, LLL.Y)
+
+                        limbs.LeftLowerLeg_LeftFoot.From = Vector2.new(LLL.X, LLL.Y)
+                        limbs.LeftLowerLeg_LeftFoot.To = Vector2.new(LF.X, LF.Y)
+
+                        -- Right Leg
+                        limbs.LowerTorso_RightUpperLeg.From = Vector2.new(LT.X, LT.Y)
+                        limbs.LowerTorso_RightUpperLeg.To = Vector2.new(RUL.X, RUL.Y)
+
+                        limbs.RightUpperLeg_RightLowerLeg.From = Vector2.new(RUL.X, RUL.Y)
+                        limbs.RightUpperLeg_RightLowerLeg.To = Vector2.new(RLL.X, RLL.Y)
+
+                        limbs.RightLowerLeg_RightFoot.From = Vector2.new(RLL.X, RLL.Y)
+                        limbs.RightLowerLeg_RightFoot.To = Vector2.new(RF.X, RF.Y)
+                    end
+
+                    if limbs.Head_UpperTorso.Visible ~= true then
+                        Visibility(true)
+                    end
+                else 
+                    if limbs.Head_UpperTorso.Visible ~= false then
+                        Visibility(false)
+                    end
+                end
+            else 
+                if limbs.Head_UpperTorso.Visible ~= false then
+                    Visibility(false)
+                end
+                if game.Players:FindFirstChild(plr.Name) == nil then 
+                    for i, v in pairs(limbs) do
+                        v:Remove()
+                    end
+                    connection:Disconnect()
+                end
+            end
+        end)
+    end
+
+    local function UpdaterR6()
+        local connection
+        connection = game:GetService("RunService").RenderStepped:Connect(function()
+            if plr.Character ~= nil and plr.Character:FindFirstChild("Humanoid") ~= nil and plr.Character:FindFirstChild("HumanoidRootPart") ~= nil and plr.Character.Humanoid.Health > 0 then
+                local HUM, vis = Camera:WorldToViewportPoint(plr.Character.HumanoidRootPart.Position)
+                if vis then
+                    local H = Camera:WorldToViewportPoint(plr.Character.Head.Position)
+                    if limbs.Head_Spine.From ~= Vector2.new(H.X, H.Y) then
+                        local T_Height = plr.Character.Torso.Size.Y/2 - 0.2
+                        local UT = Camera:WorldToViewportPoint((plr.Character.Torso.CFrame * CFrame.new(0, T_Height, 0)).p)
+                        local LT = Camera:WorldToViewportPoint((plr.Character.Torso.CFrame * CFrame.new(0, -T_Height, 0)).p)
+
+                        local LA_Height = plr.Character["Left Arm"].Size.Y/2 - 0.2
+                        local LUA = Camera:WorldToViewportPoint((plr.Character["Left Arm"].CFrame * CFrame.new(0, LA_Height, 0)).p)
+                        local LLA = Camera:WorldToViewportPoint((plr.Character["Left Arm"].CFrame * CFrame.new(0, -LA_Height, 0)).p)
+
+                        local RA_Height = plr.Character["Right Arm"].Size.Y/2 - 0.2
+                        local RUA = Camera:WorldToViewportPoint((plr.Character["Right Arm"].CFrame * CFrame.new(0, RA_Height, 0)).p)
+                        local RLA = Camera:WorldToViewportPoint((plr.Character["Right Arm"].CFrame * CFrame.new(0, -RA_Height, 0)).p)
+
+                        local LL_Height = plr.Character["Left Leg"].Size.Y/2 - 0.2
+                        local LUL = Camera:WorldToViewportPoint((plr.Character["Left Leg"].CFrame * CFrame.new(0, LL_Height, 0)).p)
+                        local LLL = Camera:WorldToViewportPoint((plr.Character["Left Leg"].CFrame * CFrame.new(0, -LL_Height, 0)).p)
+
+                        local RL_Height = plr.Character["Right Leg"].Size.Y/2 - 0.2
+                        local RUL = Camera:WorldToViewportPoint((plr.Character["Right Leg"].CFrame * CFrame.new(0, RL_Height, 0)).p)
+                        local RLL = Camera:WorldToViewportPoint((plr.Character["Right Leg"].CFrame * CFrame.new(0, -RL_Height, 0)).p)
+
+                        -- Head
+                        limbs.Head_Spine.From = Vector2.new(H.X, H.Y)
+                        limbs.Head_Spine.To = Vector2.new(UT.X, UT.Y)
+
+                        --Spine
+                        limbs.Spine.From = Vector2.new(UT.X, UT.Y)
+                        limbs.Spine.To = Vector2.new(LT.X, LT.Y)
+
+                        --Left Arm
+                        limbs.LeftArm.From = Vector2.new(LUA.X, LUA.Y)
+                        limbs.LeftArm.To = Vector2.new(LLA.X, LLA.Y)
+
+                        limbs.LeftArm_UpperTorso.From = Vector2.new(UT.X, UT.Y)
+                        limbs.LeftArm_UpperTorso.To = Vector2.new(LUA.X, LUA.Y)
+
+                        --Right Arm
+                        limbs.RightArm.From = Vector2.new(RUA.X, RUA.Y)
+                        limbs.RightArm.To = Vector2.new(RLA.X, RLA.Y)
+
+                        limbs.RightArm_UpperTorso.From = Vector2.new(UT.X, UT.Y)
+                        limbs.RightArm_UpperTorso.To = Vector2.new(RUA.X, RUA.Y)
+
+                        --Left Leg
+                        limbs.LeftLeg.From = Vector2.new(LUL.X, LUL.Y)
+                        limbs.LeftLeg.To = Vector2.new(LLL.X, LLL.Y)
+
+                        limbs.LeftLeg_LowerTorso.From = Vector2.new(LT.X, LT.Y)
+                        limbs.LeftLeg_LowerTorso.To = Vector2.new(LUL.X, LUL.Y)
+
+                        --Right Leg
+                        limbs.RightLeg.From = Vector2.new(RUL.X, RUL.Y)
+                        limbs.RightLeg.To = Vector2.new(RLL.X, RLL.Y)
+
+                        limbs.RightLeg_LowerTorso.From = Vector2.new(LT.X, LT.Y)
+                        limbs.RightLeg_LowerTorso.To = Vector2.new(RUL.X, RUL.Y)
+                    end
+
+                    if limbs.Head_Spine.Visible ~= true then
+                        Visibility(true)
+                    end
+                else 
+                    if limbs.Head_Spine.Visible ~= false then
+                        Visibility(false)
+                    end
+                end
+            else 
+                if limbs.Head_Spine.Visible ~= false then
+                    Visibility(false)
+                end
+                if game.Players:FindFirstChild(plr.Name) == nil then 
+                    for i, v in pairs(limbs) do
+                        v:Remove()
+                    end
+                    connection:Disconnect()
+                end
+            end
+        end)
+    end
+
+    if R15 then
+        coroutine.wrap(UpdaterR15)()
+    else 
+        coroutine.wrap(UpdaterR6)()
+    end
+end
+
+for i, v in pairs(game:GetService("Players"):GetPlayers()) do
+    if v.Name ~= Player.Name then
+        DrawESP(v)
+    end
+end
+
+game.Players.PlayerAdded:Connect(function(newplr)
+    if newplr.Name ~= Player.Name then
+        DrawESP(newplr)
+    end
+end)
+
+-- Made by Blissful#4992
+local Players = game:service("Players")
+local Player = Players.LocalPlayer
+local Mouse = Player:GetMouse()
+local Camera = game:service("Workspace").CurrentCamera
+local RS = game:service("RunService")
+local UIS = game:service("UserInputService")
+
+repeat wait() until Player.Character ~= nil and Player.Character.PrimaryPart ~= nil
+
+local LerpColorModule = loadstring(game:HttpGet("https://pastebin.com/raw/wRnsJeid"))()
+local HealthBarLerp = LerpColorModule:Lerp(Color3.fromRGB(255, 0, 0), Color3.fromRGB(0, 255, 0))
+
+local function NewCircle(Transparency, Color, Radius, Filled, Thickness)
+    local c = Drawing.new("Circle")
+    c.Transparency = Transparency
+    c.Color = Color
+    c.Visible = false
+    c.Thickness = Thickness
+    c.Position = Vector2.new(0, 0)
+    c.Radius = Radius
+    c.NumSides = math.clamp(Radius*55/100, 10, 75)
+    c.Filled = Filled
+    return c
+end
+
+local RadarInfo = {
+    Position = Vector2.new(200, 200),
+    Radius = 100,
+    Scale = 1, -- Determinant factor on the effect of the relative position for the 2D integration
+    RadarBack = Color3.fromRGB(10, 10, 10),
+    RadarBorder = Color3.fromRGB(75, 75, 75),
+    LocalPlayerDot = Color3.fromRGB(255, 255, 255),
+    PlayerDot = Color3.fromRGB(60, 170, 255),
+    Team = Color3.fromRGB(0, 255, 0),
+    Enemy = Color3.fromRGB(255, 0, 0),
+    Health_Color = true,
+    Team_Check = true
+}
+
+local RadarBackground = NewCircle(0.9, RadarInfo.RadarBack, RadarInfo.Radius, true, 1)
+RadarBackground.Visible = true
+RadarBackground.Position = RadarInfo.Position
+
+local RadarBorder = NewCircle(0.75, RadarInfo.RadarBorder, RadarInfo.Radius, false, 3)
+RadarBorder.Visible = true
+RadarBorder.Position = RadarInfo.Position
+
+local function GetRelative(pos)
+    local char = Player.Character
+    if char ~= nil and char.PrimaryPart ~= nil then
+        local pmpart = char.PrimaryPart
+        local camerapos = Vector3.new(Camera.CFrame.Position.X, pmpart.Position.Y, Camera.CFrame.Position.Z)
+        local newcf = CFrame.new(pmpart.Position, camerapos)
+        local r = newcf:PointToObjectSpace(pos)
+        return r.X, r.Z
+    else
+        return 0, 0
+    end
+end
+
+local function PlaceDot(plr)
+    local PlayerDot = NewCircle(1, RadarInfo.PlayerDot, 3, true, 1)
+
+    local function Update()
+        local c 
+        c = game:service("RunService").RenderStepped:Connect(function()
+            local char = plr.Character
+            if char and char:FindFirstChildOfClass("Humanoid") and char.PrimaryPart ~= nil and char:FindFirstChildOfClass("Humanoid").Health > 0 then
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                local scale = RadarInfo.Scale
+                local relx, rely = GetRelative(char.PrimaryPart.Position)
+                local newpos = RadarInfo.Position - Vector2.new(relx * scale, rely * scale) 
+                
+                if (newpos - RadarInfo.Position).magnitude < RadarInfo.Radius-2 then 
+                    PlayerDot.Radius = 3   
+                    PlayerDot.Position = newpos
+                    PlayerDot.Visible = true
+                else 
+                    local dist = (RadarInfo.Position - newpos).magnitude
+                    local calc = (RadarInfo.Position - newpos).unit * (dist - RadarInfo.Radius)
+                    local inside = Vector2.new(newpos.X + calc.X, newpos.Y + calc.Y)
+                    PlayerDot.Radius = 2
+                    PlayerDot.Position = inside
+                    PlayerDot.Visible = true
+                end
+
+                PlayerDot.Color = RadarInfo.PlayerDot
+                if RadarInfo.Team_Check then
+                    if plr.TeamColor == Player.TeamColor then
+                        PlayerDot.Color = RadarInfo.Team
+                    else
+                        PlayerDot.Color = RadarInfo.Enemy
+                    end
+                end
+
+                if RadarInfo.Health_Color then
+                    PlayerDot.Color = HealthBarLerp(hum.Health / hum.MaxHealth)
+                end
+            else 
+                PlayerDot.Visible = false
+                if Players:FindFirstChild(plr.Name) == nil then
+                    PlayerDot:Remove()
+                    c:Disconnect()
+                end
+            end
+        end)
+    end
+    coroutine.wrap(Update)()
+end
+
+for _,v in pairs(Players:GetChildren()) do
+    if v.Name ~= Player.Name then
+        PlaceDot(v)
+    end
+end
+
+local function NewLocalDot()
+    local d = Drawing.new("Triangle")
+    d.Visible = true
+    d.Thickness = 1
+    d.Filled = true
+    d.Color = RadarInfo.LocalPlayerDot
+    d.PointA = RadarInfo.Position + Vector2.new(0, -6)
+    d.PointB = RadarInfo.Position + Vector2.new(-3, 6)
+    d.PointC = RadarInfo.Position + Vector2.new(3, 6)
+    return d
+end
+
+local LocalPlayerDot = NewLocalDot()
+
+Players.PlayerAdded:Connect(function(v)
+    if v.Name ~= Player.Name then
+        PlaceDot(v)
+    end
+    LocalPlayerDot:Remove()
+    LocalPlayerDot = NewLocalDot()
+end)
+
+-- Loop
+coroutine.wrap(function()
+    local c 
+    c = game:service("RunService").RenderStepped:Connect(function()
+        if LocalPlayerDot ~= nil then
+            LocalPlayerDot.Color = RadarInfo.LocalPlayerDot
+            LocalPlayerDot.PointA = RadarInfo.Position + Vector2.new(0, -6)
+            LocalPlayerDot.PointB = RadarInfo.Position + Vector2.new(-3, 6)
+            LocalPlayerDot.PointC = RadarInfo.Position + Vector2.new(3, 6)
+        end
+        RadarBackground.Position = RadarInfo.Position
+        RadarBackground.Radius = RadarInfo.Radius
+        RadarBackground.Color = RadarInfo.RadarBack
+
+        RadarBorder.Position = RadarInfo.Position
+        RadarBorder.Radius = RadarInfo.Radius
+        RadarBorder.Color = RadarInfo.RadarBorder
+    end)
+end)()
+
+-- Draggable
+local inset = game:service("GuiService"):GetGuiInset()
+
+local dragging = false
+local offset = Vector2.new(0, 0)
+UIS.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 and (Vector2.new(Mouse.X, Mouse.Y + inset.Y) - RadarInfo.Position).magnitude < RadarInfo.Radius then
+        offset = RadarInfo.Position - Vector2.new(Mouse.X, Mouse.Y)
+        dragging = true
+    end
+end)
+
+UIS.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = false
+    end
+end)
+
+coroutine.wrap(function()
+    local dot = NewCircle(1, Color3.fromRGB(255, 255, 255), 3, true, 1)
+    local c 
+    c = game:service("RunService").RenderStepped:Connect(function()
+        if (Vector2.new(Mouse.X, Mouse.Y + inset.Y) - RadarInfo.Position).magnitude < RadarInfo.Radius then
+            dot.Position = Vector2.new(Mouse.X, Mouse.Y + inset.Y)
+            dot.Visible = true
+        else 
+            dot.Visible = false
+        end
+        if dragging then
+            RadarInfo.Position = Vector2.new(Mouse.X, Mouse.Y) + offset
+        end
+    end)
+end)()
+
+--[[ Example:
+wait(3)
+RadarInfo.Position = Vector2.new(300, 300)
+RadarInfo.Radius = 150
+RadarInfo.RadarBack = Color3.fromRGB(50, 0, 0)
+]]
+
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local runService = game:GetService("RunService")
+local userInputService = game:GetService("UserInputService")
+
+local function handleMacroSpeedGlitch()
+    local settings = getgenv().Orizon.Macro
+    local interval = settings.Speed
+
+    if settings.Keybind then
+        local function onMacroInput(input, processed)
+            if processed then return end
+
+            if input.KeyCode == Enum.KeyCode[settings.Keybind] then
+                settings.Enabled = not settings.Enabled
+
+                if settings.Enabled then
+                    if settings.Mode == "FirstPerson" then
+                        local nextActionTime = tick() + interval
+
+                        repeat
+                            if tick() >= nextActionTime then
+                                VirtualInputManager:SendMouseWheelEvent(0, 0, true, game)
+                                runService.Heartbeat:Wait()
+                                VirtualInputManager:SendMouseWheelEvent(0, 0, false, game)
+                                nextActionTime = tick() + interval
+                            end
+                            runService.Heartbeat:Wait()
+                        until not settings.Enabled
+
+                    elseif settings.Mode == "ThirdPerson" then
+                        local actionInterval = interval / 4
+                        local nextActionTime = tick() + actionInterval
+
+                        repeat
+                            if tick() >= nextActionTime then
+                                VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.I, false, game)
+                                nextActionTime = tick() + actionInterval
+                            end
+                            runService.Heartbeat:Wait()
+
+                            if tick() >= nextActionTime then
+                                VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.O, false, game)
+                                nextActionTime = tick() + actionInterval
+                            end
+                            runService.Heartbeat:Wait()
+
+                            if tick() >= nextActionTime then
+                                VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.I, false, game)
+                                nextActionTime = tick() + actionInterval
+                            end
+                            runService.Heartbeat:Wait()
+
+                            if tick() >= nextActionTime then
+                                VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.O, false, game)
+                                nextActionTime = tick() + actionInterval
+                            end
+                            runService.Heartbeat:Wait()
+
+                        until not settings.Enabled
+                    end
+                end
+            end
+        end
+        userInputService.InputBegan:Connect(onMacroInput)
+    end
+end
+
+handleMacroSpeedGlitch()
